@@ -1,0 +1,50 @@
+{
+	"name": "@oardi/csv",
+	"version": "0.1.0",
+	"private": true,
+	"description": "CSV imports with required columns, row mapping, validation, and strict error handling, powered by Papa Parse.",
+	"license": "MIT",
+	"author": "Ardian Shala",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/oardi/oardi-csv.git"
+	},
+	"type": "commonjs",
+	"main": "./dist/index.js",
+	"module": "./dist/index.mjs",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.mjs",
+			"require": "./dist/index.js",
+			"default": "./dist/index.mjs"
+		}
+	},
+	"sideEffects": false,
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"build": "node scripts/build.mjs",
+		"prepare": "npm run build",
+		"test": "vitest run",
+		"test:types": "tsc --project tsconfig.test.json",
+		"test:package": "node scripts/package-smoke-test.mjs",
+		"format": "prettier --write .",
+		"format:check": "prettier --check .",
+		"format:fix": "prettier --write .",
+		"validate": "npm run build && npm run test:types && npm test && npm run test:package && npm run format:check"
+	},
+	"devDependencies": {
+		"prettier": "^3.10.1",
+		"typescript": "7.0.2",
+		"vitest": "5.0.5",
+		"jsdom": "30.0.1"
+	},
+	"dependencies": {
+		"@oardi/ts-types": "github:oardi/oardi-ts-types#v0.1.0",
+		"@types/papaparse": "5.5.2",
+		"papaparse": "5.5.5"
+	}
+}
