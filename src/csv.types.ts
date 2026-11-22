@@ -11,6 +11,8 @@ export interface CsvParseOptions<T = Dictionary<string>, TRow = Dictionary<strin
 	errorMode?: 'collect' | 'throw';
 	/** Checked after transformHeader. Requires header mode. */
 	requiredColumns?: readonly string[];
+	/** Reject duplicate names after transformHeader. Requires header mode. Defaults to false. */
+	rejectDuplicateHeaders?: boolean;
 	/** Convert a parsed row. Throw an Error to reject that row. rowIndex is zero-based. */
 	mapRow?: (row: TRow, rowIndex: number) => T;
 	/** Return an error message to reject a mapped row, or undefined to accept it. */
@@ -19,7 +21,7 @@ export interface CsvParseOptions<T = Dictionary<string>, TRow = Dictionary<strin
 
 export interface CsvImportError {
 	type: 'Schema' | 'Mapping' | 'Validation';
-	code: 'MissingColumn' | 'RowMappingFailed' | 'RowValidationFailed';
+	code: 'MissingColumn' | 'DuplicateHeader' | 'RowMappingFailed' | 'RowValidationFailed';
 	message: string;
 	/** Zero-based data row index, excluding the header and skipped empty rows. */
 	row?: number;

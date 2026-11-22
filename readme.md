@@ -58,6 +58,7 @@ const result = await Csv.parse<Person>(' ID ; Name \n001;Ada', {
 	delimiter: ';',
 	transformHeader: header => header.trim().toLowerCase(),
 	requiredColumns: ['id', 'name'],
+	rejectDuplicateHeaders: true,
 	errorMode: 'throw',
 });
 ```
@@ -66,6 +67,29 @@ Required columns are checked after header transformation; additional columns are
 Missing columns prevent row processing. For a `File`, set `encoding` when needed.
 Papa Parse options such as `dynamicTyping`, `transform`, `header` and `skipEmptyLines` are also supported.
 `requiredColumns` requires header mode. Streaming, worker and download options are outside this API.
+
+### Reject duplicate headers
+
+Set `rejectDuplicateHeaders: true` to reject repeated column names, including names that
+become identical after `transformHeader`:
+
+```ts
+const result = await Csv.parse(' ID ,id\n001,002', {
+	transformHeader: header => header.trim().toLowerCase(),
+	rejectDuplicateHeaders: true,
+});
+
+console.log(result.data);
+// []
+console.log(result.errors);
+// [{ type: 'Schema', code: 'DuplicateHeader', message: 'Duplicate header: id' }]
+```
+
+Each duplicated name produces one schema error. Like missing required columns, duplicate
+headers prevent row mapping and validation, and `data` stays empty. Parser metadata is
+preserved. Use `errorMode: 'throw'` to receive a `CsvParseError` instead of collecting errors.
+The option requires header mode. It defaults to `false`, preserving Papa Parse's automatic
+renaming of duplicate headers.
 
 ## Map and validate rows
 
@@ -118,18 +142,43 @@ File reading failures and exceptions from parser callbacks (such as `transform` 
 
 ## Export CSV
 
+`unparse()` accepts Papa Parse's `UnparseConfig`, including column order, delimiters and quoting.
+
+Use `columns` to select and order exported properties, `delimiter` for the separator,
+and `quotes: true` to quote every value:
+
 ```ts
-const csv = Csv.unparse([{ name: 'Ada', id: '001' }], {
+const csv = Csv.unparse([{ name: 'Ada, Lovelace', id: '001', internal: true }], {
 	columns: ['id', 'name'],
 	delimiter: ';',
+	quotes: true,
 	newline: '\n',
 });
 
 console.log(csv);
-// id;name\n001;Ada
+// "id";"name"\n"001";"Ada, Lovelace"
 ```
 
-`unparse()` accepts Papa Parse's `UnparseConfig`, including column order, delimiters and quoting.
+The `internal` property is omitted. Without `quotes: true`, values containing the delimiter,
+quotes or line breaks are still quoted automatically, and embedded quotes are escaped.
+
+### Escape formula-like values
+
+When exporting user-provided text for spreadsheet software, enable `escapeFormulae`:
+
+```ts
+const csv = Csv.unparse([{ value: '=1+1' }], {
+	escapeFormulae: true,
+	newline: '\n',
+});
+
+console.log(csv);
+// value\n"'=1+1"
+```
+
+Papa Parse prefixes string values beginning with `=`, `+`, `-`, `@`, tab or carriage return
+with an apostrophe so spreadsheet software treats them as text. This changes the exported
+values; the option defaults to `false` and can also accept a custom regular expression.
 
 CommonJS: `const { Csv, CsvParseError } = require('@oardi/csv');`.
 Both formats share class identity, so `instanceof CsvParseError` works across them.

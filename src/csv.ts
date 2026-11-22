@@ -19,6 +19,7 @@ export class Csv {
 		const {
 			errorMode = 'collect',
 			requiredColumns = [],
+			rejectDuplicateHeaders = false,
 			mapRow,
 			validateRow,
 			...config
@@ -26,9 +27,14 @@ export class Csv {
 		if (config.header === false && requiredColumns.length > 0) {
 			throw new TypeError('requiredColumns requires header: true.');
 		}
+		if (config.header === false && rejectDuplicateHeaders) {
+			throw new TypeError('rejectDuplicateHeaders requires header: true.');
+		}
 
+		const duplicateHeaders = new Set<string>();
 		const parsed = await new Promise<ParseResult<TRow>>((resolve, reject) => {
 			let failed = false;
+			const seenHeaders = new Set<string>();
 			// FileReader invokes parser callbacks after the Promise executor has returned.
 			const guard = <TArgs extends unknown[], TResult>(
 				callback: (...args: TArgs) => TResult,
@@ -45,6 +51,25 @@ export class Csv {
 					}
 					return fallback(...args);
 				};
+			const transformHeader =
+				config.transformHeader || rejectDuplicateHeaders
+					? guard(
+							function (this: unknown, header: string, index: number) {
+								const transformed = config.transformHeader
+									? config.transformHeader.call(this, header, index)
+									: header;
+								// Keep each pass separate: Papa Parse may transform skipped rows or renamed headers.
+								if (rejectDuplicateHeaders) {
+									if (index === 0) seenHeaders.clear();
+									if (seenHeaders.has(transformed))
+										duplicateHeaders.add(transformed);
+									seenHeaders.add(transformed);
+								}
+								return transformed;
+							},
+							header => header
+						)
+					: undefined;
 
 			parse<TRow>(content, {
 				header: true,
@@ -56,8 +81,7 @@ export class Csv {
 						: config.delimiter,
 				beforeFirstChunk:
 					config.beforeFirstChunk && guard(config.beforeFirstChunk, () => undefined),
-				transformHeader:
-					config.transformHeader && guard(config.transformHeader, header => header),
+				transformHeader,
 				transform: config.transform && guard(config.transform, value => value),
 				dynamicTyping:
 					typeof config.dynamicTyping === 'function'
@@ -83,9 +107,16 @@ export class Csv {
 				message: `Missing required column: ${column}`,
 			});
 		}
+		for (const header of duplicateHeaders) {
+			result.errors.push({
+				type: 'Schema',
+				code: 'DuplicateHeader',
+				message: `Duplicate header: ${header}`,
+			});
+		}
 
-		// A missing schema makes every row unusable; do not invoke application callbacks.
-		if (missingColumns.length === 0) {
+		// An invalid schema makes every row unusable; do not invoke application callbacks.
+		if (missingColumns.length === 0 && duplicateHeaders.size === 0) {
 			parsed.data.forEach((rawRow, rowIndex) => {
 				let row: T;
 				try {

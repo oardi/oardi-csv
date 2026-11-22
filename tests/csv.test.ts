@@ -3,6 +3,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Csv, CsvParseError } from '@oardi/csv';
 import type { CsvParseOptions } from '@oardi/csv';
+import Papa from 'papaparse';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -86,6 +87,178 @@ describe('Csv', () => {
 		await expect(
 			Csv.parse('1,Ada', { header: false, requiredColumns: ['id'] })
 		).rejects.toThrow('requiredColumns requires header: true.');
+	});
+
+	it.each([undefined, false])(
+		'keeps automatic header renaming with rejectDuplicateHeaders: %s',
+		async rejectDuplicateHeaders => {
+			vi.spyOn(console, 'warn').mockImplementation(() => {});
+			const result = await Csv.parse('id,id\n001,002', { rejectDuplicateHeaders });
+
+			expect(result.data).toEqual([{ id: '001', id_1: '002' }]);
+			expect(result.errors).toEqual([]);
+		}
+	);
+
+	it.each(['string', 'File'] as const)(
+		'collects each duplicate header once and skips row callbacks for %s input',
+		async input => {
+			vi.spyOn(console, 'warn').mockImplementation(() => {});
+			const mapRow = vi.fn();
+			const validateRow = vi.fn();
+			const csv = 'id,name,id,id,name\n1,Ada,2,3,Grace';
+			const result = await Csv.parse(
+				input === 'string' ? csv : new File([csv], 'people.csv'),
+				{
+					rejectDuplicateHeaders: true,
+					requiredColumns: ['email'],
+					mapRow,
+					validateRow,
+				}
+			);
+
+			expect(result.data).toEqual([]);
+			expect(result.errors).toEqual([
+				{
+					type: 'Schema',
+					code: 'MissingColumn',
+					message: 'Missing required column: email',
+				},
+				{ type: 'Schema', code: 'DuplicateHeader', message: 'Duplicate header: id' },
+				{ type: 'Schema', code: 'DuplicateHeader', message: 'Duplicate header: name' },
+			]);
+			expect(result.meta.fields).toEqual(['id', 'name', 'id_1', 'id_2', 'name_1']);
+			expect(mapRow).not.toHaveBeenCalled();
+			expect(validateRow).not.toHaveBeenCalled();
+		}
+	);
+
+	it('rejects transformed duplicate headers in strict mode, including quoted headers and a BOM', async () => {
+		vi.spyOn(console, 'warn').mockImplementation(() => {});
+		await expect(
+			Csv.parse('\uFEFF" ID ";id\n001;002', {
+				delimiter: ';',
+				transformHeader: header => header.trim().toLowerCase(),
+				rejectDuplicateHeaders: true,
+				errorMode: 'throw',
+			})
+		).rejects.toMatchObject({
+			name: 'CsvParseError',
+			message: 'CSV import failed: Duplicate header: id',
+			result: {
+				data: [],
+				errors: [
+					{ type: 'Schema', code: 'DuplicateHeader', message: 'Duplicate header: id' },
+				],
+			},
+		});
+	});
+
+	describe.each(['string', 'File'] as const)('leading blank rows with %s input', input => {
+		it.each(['', '\n', '\n\n'])(
+			'accepts a single unnamed column after %j in collect and throw modes',
+			async prefix => {
+				const csv = `${prefix}id,\n001,002`;
+				const content = input === 'string' ? csv : new File([csv], 'people.csv');
+				for (const errorMode of ['collect', 'throw'] as const) {
+					const result = await Csv.parse(content, {
+						delimiter: ',',
+						rejectDuplicateHeaders: true,
+						errorMode,
+					});
+
+					expect(result.data).toEqual([{ id: '001', '': '002' }]);
+					expect(result.errors).toEqual([]);
+					expect(result.meta.fields).toEqual(['id', '']);
+				}
+			}
+		);
+
+		it.each(['\n', ' \t\n'])(
+			'rejects transformed duplicate headers after %j in collect and throw modes',
+			async prefix => {
+				const csv = `${prefix} ID ,id\n001,002`;
+				const content = input === 'string' ? csv : new File([csv], 'people.csv');
+				const mapRow = vi.fn();
+				const validateRow = vi.fn();
+				const options: CsvParseOptions = {
+					delimiter: ',',
+					transformHeader: header => header.trim().toLowerCase(),
+					rejectDuplicateHeaders: true,
+					mapRow,
+					validateRow,
+				};
+				const result = await Csv.parse(content, options);
+
+				expect(result.data).toEqual([]);
+				expect(result.errors).toEqual([
+					{ type: 'Schema', code: 'DuplicateHeader', message: 'Duplicate header: id' },
+				]);
+				await expect(
+					Csv.parse(content, { ...options, errorMode: 'throw' })
+				).rejects.toMatchObject({ name: 'CsvParseError', result });
+				expect(mapRow).not.toHaveBeenCalled();
+				expect(validateRow).not.toHaveBeenCalled();
+			}
+		);
+
+		it('accepts unique transformed headers including an unnamed column after skipped blank rows', async () => {
+			const csv = '\n \t\n ID , \n001,Ada';
+			const result = await Csv.parse(
+				input === 'string' ? csv : new File([csv], 'people.csv'),
+				{
+					delimiter: ',',
+					transformHeader: header => header.trim().toLowerCase(),
+					rejectDuplicateHeaders: true,
+					errorMode: 'throw',
+				}
+			);
+
+			expect(result.data).toEqual([{ id: '001', '': 'Ada' }]);
+			expect(result.errors).toEqual([]);
+		});
+	});
+
+	it('accepts unique headers without treating repeated transformation passes as duplicates', async () => {
+		const result = await Csv.parse('id,name\n001,Ada', {
+			transformHeader: header => `column_${header}`,
+			rejectDuplicateHeaders: true,
+		});
+
+		expect(result.data).toEqual([{ column_column_id: '001', column_column_name: 'Ada' }]);
+		expect(result.errors).toEqual([]);
+	});
+
+	it('retains duplicate-header detection across browser File chunks', async () => {
+		vi.spyOn(console, 'warn').mockImplementation(() => {});
+		const originalChunkSize = Papa.LocalChunkSize;
+		Papa.LocalChunkSize = 12;
+		try {
+			const result = await Csv.parse(
+				new File(['id,id\n001,002\n003,004\n005,006'], 'people.csv'),
+				{
+					rejectDuplicateHeaders: true,
+				}
+			);
+
+			expect(result.data).toEqual([]);
+			expect(result.errors).toEqual([
+				{ type: 'Schema', code: 'DuplicateHeader', message: 'Duplicate header: id' },
+			]);
+		} finally {
+			Papa.LocalChunkSize = originalChunkSize;
+		}
+	});
+
+	it('requires header mode when rejecting duplicate headers', async () => {
+		await expect(
+			Csv.parse('1,1', { header: false, rejectDuplicateHeaders: true })
+		).rejects.toThrow('rejectDuplicateHeaders requires header: true.');
+		const result = await Csv.parse<string[], string[]>('1,1', {
+			header: false,
+			rejectDuplicateHeaders: false,
+		});
+		expect(result.data).toEqual([['1', '1']]);
 	});
 
 	it('maps rows before validating and excludes rejected rows from collected data', async () => {

@@ -22,4 +22,13 @@ describe('Node and module formats', () => {
 			CsvParseError
 		);
 	});
+	it('rejects duplicate headers through CommonJS with the shared error class', async () => {
+		await expect(
+			cjs.Csv.parse('id,name\n001,Ada', {
+				transformHeader: () => 'column',
+				rejectDuplicateHeaders: true,
+				errorMode: 'throw',
+			})
+		).rejects.toBeInstanceOf(CsvParseError);
+	});
 });

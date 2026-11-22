@@ -7,6 +7,7 @@ interface Person {
 }
 const options: CsvParseOptions<Person> = {
 	requiredColumns: ['name', 'age'],
+	rejectDuplicateHeaders: true,
 	mapRow: row => ({ name: row['name'] ?? '', age: Number(row['age']) }),
 	validateRow: row => (Number.isFinite(row.age) ? undefined : 'Invalid age.'),
 	errorMode: 'throw',
@@ -36,6 +37,11 @@ const issue: CsvImportError = {
 	message: 'Invalid age.',
 	row: 0,
 };
+const duplicateHeader: CsvImportError = {
+	type: 'Schema',
+	code: 'DuplicateHeader',
+	message: 'Duplicate header: name',
+};
 function inspect(error: unknown): void {
 	if (error instanceof CsvParseError) {
 		const failed: CsvParseResult<unknown> = error.result;
@@ -50,6 +56,8 @@ const worker: CsvParseOptions = { worker: true };
 const completion: CsvParseOptions = { complete: () => {} };
 // @ts-expect-error Error mode is limited to the documented strategies.
 const invalidMode: CsvParseOptions = { errorMode: 'ignore' };
+// @ts-expect-error Duplicate-header rejection is a boolean option.
+const invalidDuplicateHeaders: CsvParseOptions = { rejectDuplicateHeaders: 'true' };
 // @ts-expect-error Validators must return an error message or undefined.
 const invalidValidator: CsvParseOptions<Person> = { validateRow: () => false };
 // @ts-expect-error The mapper must produce the requested target type.
@@ -64,11 +72,13 @@ void [
 	fileResult,
 	csv,
 	issue,
+	duplicateHeader,
 	inspect,
 	streaming,
 	worker,
 	completion,
 	invalidMode,
+	invalidDuplicateHeaders,
 	invalidValidator,
 	invalidMapper,
 	CsvHelper,
