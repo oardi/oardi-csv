@@ -285,6 +285,115 @@ describe('Csv', () => {
 		]);
 	});
 
+	it.each(['string', 'File'])(
+		'collects all validation issues per mapped row from %s input',
+		async input => {
+			const text = ' Name , Age \nAda,36\n\n,-1\nLinus,55';
+			const result = await Csv.parse(
+				input === 'File' ? new File([text], 'people.csv') : text,
+				{
+					transformHeader: header => header.trim().toLowerCase(),
+					mapRow: row => ({ name: row['name'], age: Number(row['age']) }),
+					validateRow: row => {
+						const issues = [];
+						if (!row.name)
+							issues.push({ column: 'name', message: 'Name is required.' });
+						if (row.age < 0)
+							issues.push({ column: 'age', message: 'Age must be non-negative.' });
+						return issues;
+					},
+				}
+			);
+
+			expect(result.data).toEqual([
+				{ name: 'Ada', age: 36 },
+				{ name: 'Linus', age: 55 },
+			]);
+			expect(result.errors).toEqual([
+				{
+					type: 'Validation',
+					code: 'RowValidationFailed',
+					message: 'Name is required.',
+					row: 1,
+					column: 'name',
+				},
+				{
+					type: 'Validation',
+					code: 'RowValidationFailed',
+					message: 'Age must be non-negative.',
+					row: 1,
+					column: 'age',
+				},
+			]);
+			expect(result.meta.fields).toEqual(['name', 'age']);
+		}
+	);
+
+	it('preserves readonly validation issues, empty messages and optional column identifiers', async () => {
+		const issues = Object.freeze([
+			Object.freeze({ message: '' }),
+			Object.freeze({ column: '', message: 'Unnamed field.' }),
+			Object.freeze({ column: 'derived', message: 'Derived value is invalid.' }),
+		]);
+		const result = await Csv.parse('id,name\n1,Ada', { validateRow: () => issues });
+
+		expect(result.data).toEqual([]);
+		expect(result.errors).toEqual([
+			{ type: 'Validation', code: 'RowValidationFailed', message: '', row: 0 },
+			{
+				type: 'Validation',
+				code: 'RowValidationFailed',
+				message: 'Unnamed field.',
+				row: 0,
+				column: '',
+			},
+			{
+				type: 'Validation',
+				code: 'RowValidationFailed',
+				message: 'Derived value is invalid.',
+				row: 0,
+				column: 'derived',
+			},
+		]);
+		expect(result.errors[0]).not.toHaveProperty('column');
+	});
+
+	it('includes all validation issues and subsequent valid rows in strict failures', async () => {
+		await expect(
+			Csv.parse('id,name\n1,Ada\n2,Grace\n3,Linus', {
+				errorMode: 'throw',
+				validateRow: (_row, rowIndex) =>
+					rowIndex === 1
+						? [{ column: 'id', message: 'Invalid ID.' }, { message: 'Invalid record.' }]
+						: [],
+			})
+		).rejects.toMatchObject({
+			name: 'CsvParseError',
+			message: 'CSV import failed at data row 2: Invalid ID.',
+			result: {
+				data: [
+					{ id: '1', name: 'Ada' },
+					{ id: '3', name: 'Linus' },
+				],
+				errors: [
+					{
+						type: 'Validation',
+						code: 'RowValidationFailed',
+						message: 'Invalid ID.',
+						row: 1,
+						column: 'id',
+					},
+					{
+						type: 'Validation',
+						code: 'RowValidationFailed',
+						message: 'Invalid record.',
+						row: 1,
+					},
+				],
+			},
+		});
+	});
+
 	it('reports mapping failures while continuing with subsequent rows', async () => {
 		const result = await Csv.parse('id,name\n1,Ada\n2,Grace', {
 			mapRow: row => {

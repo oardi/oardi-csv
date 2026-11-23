@@ -2,7 +2,7 @@ import type { Dictionary, Optional } from '@oardi/ts-types';
 import type { ParseResult, UnparseConfig, UnparseObject } from 'papaparse';
 import pkg from 'papaparse';
 import { CsvParseError } from './csv-parse.error.js';
-import type { CsvParseOptions, CsvParseResult } from './csv.types.js';
+import type { CsvParseOptions, CsvParseResult, CsvValidationIssue } from './csv.types.js';
 
 const { parse, unparse } = pkg;
 
@@ -131,19 +131,26 @@ export class Csv {
 					return;
 				}
 
-				let validationError: Optional<string>;
+				let validationResult: Optional<string | readonly CsvValidationIssue[]>;
 				try {
-					validationError = validateRow?.(row, rowIndex);
+					validationResult = validateRow?.(row, rowIndex);
 				} catch (error) {
-					validationError = error instanceof Error ? error.message : String(error);
+					validationResult = error instanceof Error ? error.message : String(error);
 				}
-				if (validationError !== undefined) {
-					result.errors.push({
-						type: 'Validation',
-						code: 'RowValidationFailed',
-						message: validationError,
-						row: rowIndex,
-					});
+				const validationIssues: readonly CsvValidationIssue[] =
+					typeof validationResult === 'string'
+						? [{ message: validationResult }]
+						: (validationResult ?? []);
+				if (validationIssues.length > 0) {
+					for (const issue of validationIssues) {
+						result.errors.push({
+							type: 'Validation',
+							code: 'RowValidationFailed',
+							message: issue.message,
+							row: rowIndex,
+							...(issue.column === undefined ? {} : { column: issue.column }),
+						});
+					}
 					return;
 				}
 				result.data.push(row);

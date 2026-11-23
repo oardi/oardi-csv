@@ -74,6 +74,17 @@ try {
         });
         assert.deepEqual(result.data, [{ name: 'Ada', age: 36 }]);
         assert.equal(result.errors[0].row, 1);
+        const validationResult = await cjs.Csv.parse('id,name\\n1,Ada\\n2,Grace', {
+            validateRow: (_row, rowIndex) => rowIndex === 0 ? [
+                { message: 'Invalid ID.', column: 'id' },
+                { message: 'Invalid record.' },
+            ] : [],
+        });
+        assert.deepEqual(validationResult.data, [{ id: '2', name: 'Grace' }]);
+        assert.deepEqual(validationResult.errors, [
+            { type: 'Validation', code: 'RowValidationFailed', message: 'Invalid ID.', row: 0, column: 'id' },
+            { type: 'Validation', code: 'RowValidationFailed', message: 'Invalid record.', row: 0 },
+        ]);
         await assert.rejects(cjs.Csv.parse('id,name\\n001', { errorMode: 'throw' }), esm.CsvParseError);
         const exported = cjs.Csv.unparse(result.data, { columns: ['name', 'age'], newline: '\\n' });
         assert.equal(exported, 'name,age\\nAda,36');

@@ -15,8 +15,14 @@ export interface CsvParseOptions<T = Dictionary<string>, TRow = Dictionary<strin
 	rejectDuplicateHeaders?: boolean;
 	/** Convert a parsed row. Throw an Error to reject that row. rowIndex is zero-based. */
 	mapRow?: (row: TRow, rowIndex: number) => T;
-	/** Return an error message to reject a mapped row, or undefined to accept it. */
-	validateRow?: (row: T, rowIndex: number) => Optional<string>;
+	/** Return a message or validation issues to reject a row; undefined or an empty list accepts it. */
+	validateRow?: (row: T, rowIndex: number) => Optional<string | readonly CsvValidationIssue[]>;
+}
+
+export interface CsvValidationIssue {
+	message: string;
+	/** Application-supplied column identifier; not checked against CSV headers. */
+	column?: string;
 }
 
 export interface CsvImportError {
@@ -25,6 +31,8 @@ export interface CsvImportError {
 	message: string;
 	/** Zero-based data row index, excluding the header and skipped empty rows. */
 	row?: number;
+	/** Optional column identifier supplied by row validation. */
+	column?: string;
 }
 
 export interface CsvParseResult<T> extends Omit<ParseResult<T>, 'errors'> {

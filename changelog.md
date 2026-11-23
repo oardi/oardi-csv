@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-23
+
+- added multiple row-validation issues with optional column identifiers, preserving string validators and accepting empty or readonly issue lists
+
 ## [0.2.0] - 2026-11-22
 
 - added optional duplicate-header rejection after header transformation, including after leading blank or whitespace-only rows, with schema errors and skipped row processing

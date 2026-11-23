@@ -1,6 +1,6 @@
 {
 	"name": "@oardi/csv",
-	"version": "0.2.0",
+	"version": "0.3.0",
 	"private": true,
 	"description": "CSV imports with required columns, row mapping, validation, and strict error handling, powered by Papa Parse.",
 	"license": "MIT",

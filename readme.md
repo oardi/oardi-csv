@@ -119,6 +119,40 @@ Exceptions from either callback also become row errors, and rejected rows are om
 Both callbacks receive a zero-based data row index as their second argument, excluding the header
 and skipped empty rows. This is a record index, not a physical file line number.
 
+### Report multiple validation issues
+
+Return a list of `CsvValidationIssue` objects to report several problems in one row:
+
+```ts
+import type { CsvValidationIssue } from '@oardi/csv';
+
+const result = await Csv.parse<PersonWithAge>('name,age\nAda,36\n,-1', {
+	mapRow: row => ({ name: (row['name'] ?? '').trim(), age: Number(row['age']) }),
+	validateRow: person => {
+		const issues: CsvValidationIssue[] = [];
+		if (!person.name) issues.push({ column: 'name', message: 'Name is required.' });
+		if (!Number.isInteger(person.age) || person.age < 0) {
+			issues.push({ column: 'age', message: 'Age must be a non-negative integer.' });
+		}
+		return issues;
+	},
+});
+
+console.log(result.errors);
+// [
+//   { type: 'Validation', code: 'RowValidationFailed', message: 'Name is required.', row: 1, column: 'name' },
+//   { type: 'Validation', code: 'RowValidationFailed', message: 'Age must be a non-negative integer.', row: 1, column: 'age' }
+// ]
+```
+
+Each issue becomes a separate error in list order, with the same data row index. A nonempty
+list excludes the row from `data`; an empty list accepts it, just like `undefined`.
+Existing validators returning a string continue to work, including empty error messages.
+Readonly issue lists are also accepted. Every issue needs a `message`; `column` is optional
+and is copied as supplied without checking it against CSV headers, allowing identifiers for
+mapped or derived fields. For CSV column references, use the name after `transformHeader`.
+With `errorMode: 'throw'`, `CsvParseError.result` contains all issues and accepted rows.
+
 ## Handle errors
 
 The default `errorMode: 'collect'` returns data alongside `errors`.
@@ -182,7 +216,7 @@ values; the option defaults to `false` and can also accept a custom regular expr
 
 CommonJS: `const { Csv, CsvParseError } = require('@oardi/csv');`.
 Both formats share class identity, so `instanceof CsvParseError` works across them.
-The package exports `CsvParseOptions`, `CsvParseResult`, and `CsvImportError` as types.
+The package exports `CsvParseOptions`, `CsvParseResult`, `CsvImportError`, and `CsvValidationIssue` as types.
 When mapping non-string values or parsing without headers, supply the raw row type
 as the second generic argument, for example `Csv.parse<string[], string[]>(text, { header: false })`.
 
